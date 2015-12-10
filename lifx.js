@@ -45,7 +45,8 @@ Lifx.prototype._initNetwork = function() {
 		}
 		if (debug) console.log(" U- " + msg.toString("hex"));
 		var pkt = packet.fromBytes(msg);
-		self.emit('rawpacket', pkt, rinfo);
+        if (pkt)
+		    self.emit('rawpacket', pkt, rinfo);
 	});
 	this.udpClient.bind(port, "0.0.0.0", function() {
 		self.udpClient.setBroadcast(true);
@@ -71,76 +72,84 @@ Lifx.prototype.stopDiscovery = function() {
 	clearInterval(this._intervalID);
 };
 
-Lifx.prototype._setupPacketListener = function() {
-	var self = this;
+Lifx.prototype._setupPacketListener = function () {
+    var self = this;
 
-	this.on('rawpacket', function(pkt, rinfo) {
-                var bulb, found = false, i;
+    this.on('rawpacket', function (pkt, rinfo) {
+        var bulb, found = false, i;
 
-		switch (pkt.packetTypeShortName) {
+        // console.log(pkt.packetTypeShortName);
 
-			case 'panGateway':
-				// Got a notification of a gateway.  Check if it's new, using valid UDP, and if it is then handle accordingly
-				if (pkt.payload.service == 1 && pkt.payload.port > 0) {
-					var gw = {ip:rinfo.address, port:pkt.payload.port, site:pkt.preamble.site, 
-							service: pkt.payload.service,
-							protocol: pkt.preamble.protocol,
-							bulbAddress: pkt.preamble.bulbAddress.toString("hex")
-						};
-					
-					if (!self.gateways[gw.ip]) {
-						//console.log(JSON.stringify(gw));
-						self.gateways[gw.ip] = gw;
-						self.emit('gateway', gw);
-					}
-				}
-				break;
+        switch (pkt.packetTypeShortName) {
 
-			case 'lightStatus':
-				// Got a notification of a light's status.  Check if it's a new light, and handle it accordingly.
-				var bulb = self.bulbs[pkt.preamble.bulbAddress.toString('hex')];
-				if (bulb) {
-					bulb.state = pkt.payload;
-				}
-				else {
-					bulb = {addr:pkt.preamble.bulbAddress, name:pkt.payload.bulbLabel, state: pkt.payload};
-					self.bulbs[bulb.addr.toString('hex')] = bulb;
-					self.emit('bulb', bulb);
-				}
+            case 'panGateway':
+                // Got a notification of a gateway.  Check if it's new, using valid UDP, and if it is then handle accordingly
+                if (pkt.payload.service == 1 && pkt.payload.port > 0) {
+                    var gw = { ip: rinfo.address, port: pkt.payload.port, site: pkt.preamble.site,
+                        service: pkt.payload.service,
+                        protocol: pkt.preamble.protocol,
+                        bulbAddress: pkt.preamble.bulbAddress.toString("hex")
+                    };
 
-				// Even if it's not new, emit updated info about the state of the bulb
-                                bulb.state = { hue:        pkt.payload.hue,
-                                               saturation: pkt.payload.saturation,
-                                               brightness: pkt.payload.brightness,
-                                               kelvin:     pkt.payload.kelvin,
-                                               dim:        pkt.payload.dim,
-                                               power:      pkt.payload.power,
-                                             };
-				self.emit('bulbstate', bulb);
-				break;
+                    if (!self.gateways[gw.ip]) {
+                        //console.log(JSON.stringify(gw));
+                        self.gateways[gw.ip] = gw;
+                        self.emit('gateway', gw);
+                    }
+                }
+                break;
 
-			case 'powerState':
-				bulb = {addr:pkt.preamble.bulbAddress, state: {power: pkt.payload.onoff}}
-				self.emit('bulbpower', bulb);
-				break;
+            case 'lightStatus':
+                // Got a notification of a light's status.  Check if it's a new light, and handle it accordingly.
+                var bulb = self.bulbs[pkt.preamble.bulbAddress.toString('hex')];
+                if (bulb) {
+                    bulb.name = pkt.payload.bulbLabel;
+                    bulb.state = pkt.payload;
+                }
+                else {
+                    bulb = { addr: pkt.preamble.bulbAddress, name: pkt.payload.bulbLabel, state: pkt.payload };
+                    self.bulbs[bulb.addr.toString('hex')] = bulb;
+                    self.emit('bulb', bulb);
+                }
 
-			case 'bulbLabel':
-				bulb = {addr:pkt.preamble.bulbAddress, name:pkt.payload.label}
-				self.emit('bulblabel', bulb);
-				break;
+                // Even if it's not new, emit updated info about the state of the bulb
+                bulb.state = { hue: pkt.payload.hue,
+                    saturation: pkt.payload.saturation,
+                    brightness: pkt.payload.brightness,
+                    kelvin: pkt.payload.kelvin,
+                    dim: pkt.payload.dim,
+                    power: pkt.payload.power
+                };
+                self.emit('bulbstate', bulb);
+                break;
 
-			case 'getPanGateway':
-				break;
+            case 'powerState':
+                bulb = { addr: pkt.preamble.bulbAddress, state: { power: pkt.payload.onoff} }
+                self.emit('bulbpower', bulb);
+                break;
 
-			default:
-				if (debug) {
-					console.log('Unhandled packet of type ['+pkt.packetTypeShortName+']');
-					console.log(pkt.payload);
-				}
-				self.emit('packet', pkt);
-				break;
-		}
-	});
+            case 'bulbLabel':
+                bulb = { addr: pkt.preamble.bulbAddress, name: pkt.payload.label }
+                self.emit('bulblabel', bulb);
+                break;
+
+            case 'getPanGateway':
+                break;
+
+            case 'versionState':
+                bulb = { addr: pkt.preamble.bulbAddress, version: pkt.payload };
+                self.emit('version', bulb);
+                break;
+
+            default:
+                if (debug) {
+                    console.log('Unhandled packet of type [' + pkt.packetTypeShortName + ']');
+                    console.log(pkt.payload);
+                }
+                self.emit('packet', pkt);
+                break;
+        }
+    });
 
 };
 
@@ -228,10 +237,19 @@ Lifx.prototype.requestStatus = function() {
 	this._sendToOneOrAll(packet.getLightState());
 };
 
+// Discover on demand
+Lifx.prototype.discover = function() {
+    this.stopDiscovery();
+    this.startDiscovery(1000);
+}
+
 module.exports = {
-	init:init,
-        packet:packet,
-	setDebug:function(d){debug=d;}
+    init: init,
+    packet: packet,
+    setDebug: function (d) {
+        debug = d;
+        packet.setDebug(d);
+    }
 };
 
 // Utility method to get a list of local IP addresses
