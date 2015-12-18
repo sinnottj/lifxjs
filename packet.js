@@ -710,11 +710,9 @@ packets = {
 	0x76: {
 		name:"Power state (2.0)",
 		shortname:"powerState2",
-		length:6,
+		length:2,
 		fields:[
-			{name:"onoff", type:type.uint16},
-            {name:"reserved1", type:type.uint16},
-            {name:"reserved2", type:type.uint16},
+			{name:"onoff", type:type.uint16}
 		]
 	},
 	0xcb: {
